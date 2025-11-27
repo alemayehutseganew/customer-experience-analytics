@@ -10,3 +10,5 @@ SQLAlchemy>=1.4
 transformers>=4.0.0
 torch>=1.7; platform_system != 'Windows' or platform_system == 'Windows'
 sentence-transformers>=2.2.2
+python-dotenv>=1.0
+langdetect>=1.0.9

@@ -1,14 +1,13 @@
-"""Create Postgres schema and insert cleaned/annotated reviews.
+"""Create Postgres schema and insert cleaned/annotated reviews."""
 
-Usage (example):
-  set PGURL=postgresql://user:password@localhost:5432/bank_reviews; python src/db.py --in data/annotated_example.csv
-
-Edit the `DATABASE_URL` default or pass via `PGURL` env var.
-"""
 import argparse
 import os
+from typing import Optional
+
 import pandas as pd
-from sqlalchemy import create_engine, MetaData, Table, Column, Integer, String, Date, Float, Text, ForeignKey
+from sqlalchemy import Column, Date, Float, ForeignKey, Integer, MetaData, String, Table, Text, create_engine
+
+from config import APP_IDS, BANK_NAMES, DATA_PATHS
 
 
 DEFAULT_DBURL = os.environ.get('PGURL') or 'postgresql://postgres:postgres@localhost:5432/bank_reviews'
@@ -39,44 +38,57 @@ def create_schema(engine):
     return banks, reviews
 
 
+def _bank_code_from_row(row: pd.Series) -> Optional[str]:
+    if 'bank_code' in row and isinstance(row['bank_code'], str):
+        return row['bank_code']
+    name_to_code = {v: k for k, v in BANK_NAMES.items()}
+    bank_name = row.get('bank')
+    if isinstance(bank_name, str):
+        return name_to_code.get(bank_name)
+    return None
+
+
 def insert_reviews(engine, df):
     meta = MetaData(bind=engine)
     meta.reflect()
     banks = meta.tables.get('banks')
     reviews = meta.tables.get('reviews')
-    conn = engine.connect()
-    # Insert distinct banks
-    bank_map = {}
-    for bank in df['bank'].dropna().unique():
-        res = conn.execute(banks.select().where(banks.c.bank_name == bank)).fetchone()
-        if res:
-            bank_map[bank] = res['bank_id']
-        else:
-            r = conn.execute(banks.insert().values(bank_name=bank, app_name=None))
-            bank_map[bank] = r.inserted_primary_key[0]
 
-    # Insert reviews
-    ins = []
-    for _, row in df.iterrows():
-        bid = bank_map.get(row.get('bank'))
-        ins.append({
-            'bank_id': bid,
-            'review_text': row.get('review'),
-            'rating': int(row.get('rating')) if pd.notna(row.get('rating')) else None,
-            'review_date': row.get('review_date') if 'review_date' in row else None,
-            'sentiment_label': row.get('sentiment_label'),
-            'sentiment_score': float(row.get('sentiment_score')) if pd.notna(row.get('sentiment_score')) else None,
-            'source': row.get('source'),
-        })
-    conn.execute(reviews.insert(), ins)
+    with engine.begin() as conn:
+        bank_map = {}
+        for bank_name in df['bank'].dropna().unique():
+            res = conn.execute(banks.select().where(banks.c.bank_name == bank_name)).fetchone()
+            if res:
+                bank_map[bank_name] = res['bank_id']
+            else:
+                sample_row = df[df['bank'] == bank_name].iloc[0]
+                bank_code = _bank_code_from_row(sample_row)
+                package = APP_IDS.get(bank_code) if bank_code else None
+                inserted = conn.execute(banks.insert().values(bank_name=bank_name, app_name=package))
+                bank_map[bank_name] = inserted.inserted_primary_key[0]
+
+        ins = []
+        for _, row in df.iterrows():
+            bid = bank_map.get(row.get('bank'))
+            ins.append({
+                'bank_id': bid,
+                'review_text': row.get('review'),
+                'rating': int(row.get('rating')) if pd.notna(row.get('rating')) else None,
+                'review_date': row.get('review_date') if 'review_date' in row else None,
+                'sentiment_label': row.get('sentiment_label') if 'sentiment_label' in row else None,
+                'sentiment_score': float(row.get('sentiment_score')) if 'sentiment_score' in row and pd.notna(row.get('sentiment_score')) else None,
+                'source': row.get('source'),
+            })
+        conn.execute(reviews.insert(), ins)
     print(f'Inserted {len(ins)} reviews')
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--in', dest='in_path', required=True, help='Input annotated CSV')
-    parser.add_argument('--dburl', default=DEFAULT_DBURL, help='Postgres DB URL')
+    parser = argparse.ArgumentParser(description='Load sentiment-enriched reviews into Postgres.')
+    parser.add_argument('--in', dest='in_path', default=DATA_PATHS['sentiment_results'], help='Input annotated CSV path (defaults to config).')
+    parser.add_argument('--dburl', default=DEFAULT_DBURL, help='Postgres DB URL (or set PGURL env).')
     args = parser.parse_args()
+
     df = pd.read_csv(args.in_path, parse_dates=['review_date'])
     engine = create_engine(args.dburl)
     create_schema(engine)

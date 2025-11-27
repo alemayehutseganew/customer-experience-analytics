@@ -13,40 +13,38 @@ Quick start
 pip install -r requirements.txt
 ```
 
-3. Scrape reviews:
+3. Scrape reviews (defaults read from `src/config.py` / `.env`):
 
 ```powershell
-# CBE
-python src/scrape_reviews.py --package com.combanketh.mobilebanking --bank "CBE" --count 500 --out data/raw/cbe_reviews.csv
+python src/scrape_reviews.py  # writes to data/raw/reviews_raw.csv
 
-# BOA
-python src/scrape_reviews.py --package com.boa.boaMobileBanking --bank "BOA" --count 500 --out data/raw/boa_reviews.csv
-
-# Dashen
-python src/scrape_reviews.py --package com.dashen.dashensuperapp --bank "Dashen" --count 500 --out data/raw/dashen_reviews.csv
+# Scrape a single bank override example
+python src/scrape_reviews.py --bank CBE --count 600 --out data/raw/cbe_custom.csv
 ```
 
-4. Preprocess:
+4. Preprocess (cleans and deduplicates into `data/processed/reviews_processed.csv`):
 
 ```powershell
-python src/preprocess.py --in data/raw/cbe_reviews.csv --out data/clean/cbe_reviews.csv
-python src/preprocess.py --in data/raw/boa_reviews.csv --out data/clean/boa_reviews.csv
-python src/preprocess.py --in data/raw/dashen_reviews.csv --out data/clean/dashen_reviews.csv
+python src/preprocess.py
 ```
 
-5. Sentiment & themes:
+5. Sentiment & keywords (outputs `data/processed/reviews_with_sentiment.csv`):
 
 ```powershell
-python src/sentiment.py --in data/clean/cbe_reviews.csv --out data/annotated/cbe_reviews.csv
-python src/sentiment.py --in data/clean/boa_reviews.csv --out data/annotated/boa_reviews.csv
-python src/sentiment.py --in data/clean/dashen_reviews.csv --out data/annotated/dashen_reviews.csv
+python src/sentiment.py
 ```
 
-6. Insert into Postgres (update connection URL inside `src/db.py` or pass via env var):
+6. Insert into Postgres (update the URL or export `PGURL`):
+
+```powershell
+set PGURL=postgresql://user:pass@localhost:5432/bank_reviews
+python src/db.py
+```
 
 
 
 Notes
+- Configure app ids, language, review counts, and file paths in `src/config.py` or via environment variables (`.env`).
 - This scaffold uses `google_play_scraper` (Python package) to collect reviews. If you prefer the Node `google-play-scraper`, see the references in the challenge doc.
 - The sentiment script uses VADER by default and will attempt a Hugging Face transformer model if `transformers` is installed.
 
