@@ -44,9 +44,7 @@ python src/sentiment.py --in data/clean/dashen_reviews.csv --out data/annotated/
 
 6. Insert into Postgres (update connection URL inside `src/db.py` or pass via env var):
 
-```powershell
-set PGURL=postgresql://user:pass@localhost:5432/bank_reviews; python src/db.py --in data/annotated_example.csv
-```
+
 
 Notes
 - This scaffold uses `google_play_scraper` (Python package) to collect reviews. If you prefer the Node `google-play-scraper`, see the references in the challenge doc.
