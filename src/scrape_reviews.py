@@ -5,16 +5,22 @@ the ``--bank`` CLI argument. Output paths, languages, and review counts default 
 values declared inside ``config.py`` so that changes can be centralized in one place.
 """
 import argparse
+import logging
 import os
+import time
+from collections import Counter
 from datetime import datetime
-from typing import Dict, Iterable, List
+from typing import Iterable, List, Sequence, Tuple
 
 import pandas as pd
 from google_play_scraper import Sort, reviews
 
-from config import APP_IDS, BANK_NAMES, DATA_PATHS, SCRAPING_CONFIG
+from config import APP_IDS, BANK_NAMES, DATA_PATHS, QUALITY_THRESHOLDS, SCRAPING_CONFIG
 
 SOURCE = 'google_play'
+
+logging.basicConfig(level=os.getenv('LOGLEVEL', 'INFO'), format='[%(levelname)s] %(message)s')
+LOGGER = logging.getLogger(__name__)
 
 
 def _serialize_review(bank_code: str, package: str, payload: dict) -> dict:
@@ -38,20 +44,41 @@ def _serialize_review(bank_code: str, package: str, payload: dict) -> dict:
     }
 
 
-def scrape_bank(bank_code: str, package_name: str, *, lang: str, country: str, count: int) -> List[dict]:
+def _safe_reviews_call(package_name: str, *, lang: str, country: str, count: int, continuation_token, retries: int) -> Tuple[List[dict], str]:
+    attempts = 0
+    while True:
+        try:
+            return reviews(
+                package_name,
+                lang=lang,
+                country=country,
+                sort=Sort.NEWEST,
+                count=count,
+                continuation_token=continuation_token,
+            )
+        except Exception as exc:  # pragma: no cover - defensive logging
+            attempts += 1
+            if attempts > retries:
+                raise RuntimeError(f'Failed to fetch reviews for {package_name} after {retries} retries') from exc
+            wait = min(2 ** attempts, 60)
+            LOGGER.warning('Retry %s/%s for %s after error: %s. Sleeping %ss.', attempts, retries, package_name, exc, wait)
+            time.sleep(wait)
+
+
+def scrape_bank(bank_code: str, package_name: str, *, lang: str, country: str, count: int, retries: int) -> List[dict]:
     """Scrape a single bank/app id and return serialized reviews."""
     collected = []
     continuation_token = None
     chunk = min(200, count)
 
     while len(collected) < count:
-        batch, continuation_token = reviews(
+        batch, continuation_token = _safe_reviews_call(
             package_name,
             lang=lang,
             country=country,
-            sort=Sort.NEWEST,
             count=chunk,
             continuation_token=continuation_token,
+            retries=retries,
         )
         if not batch:
             break
@@ -64,18 +91,29 @@ def scrape_bank(bank_code: str, package_name: str, *, lang: str, country: str, c
     return [_serialize_review(bank_code, package_name, payload) for payload in collected]
 
 
-def scrape_all(banks: Iterable[str], *, lang: str, country: str, count: int) -> List[dict]:
+def scrape_all(banks: Iterable[str], *, lang: str, country: str, count: int, retries: int) -> List[dict]:
     records: List[dict] = []
     for bank_code in banks:
         package = APP_IDS.get(bank_code)
         if not package:
-            print(f'[WARN] Bank "{bank_code}" missing from APP_IDS, skipping.')
+            LOGGER.warning('Bank "%s" missing from APP_IDS, skipping.', bank_code)
             continue
-        print(f'Scraping {count} reviews for {bank_code} ({package})...')
-        bank_reviews = scrape_bank(bank_code, package, lang=lang, country=country, count=count)
-        print(f'  -> Collected {len(bank_reviews)} reviews.')
+        LOGGER.info('Scraping %s reviews for %s (%s)...', count, bank_code, package)
+        bank_reviews = scrape_bank(bank_code, package, lang=lang, country=country, count=count, retries=retries)
+        LOGGER.info('Collected %s reviews for %s.', len(bank_reviews), bank_code)
         records.extend(bank_reviews)
     return records
+
+
+def enforce_bank_counts(records: Sequence[dict], target_banks: Sequence[str], *, minimum: int, expected: int) -> None:
+    counts = Counter(r['bank_code'] for r in records)
+    shortfalls = {code: minimum - counts.get(code, 0) for code in target_banks if counts.get(code, 0) < minimum}
+    LOGGER.info('Per-bank counts: %s', {code: counts.get(code, 0) for code in target_banks})
+    warnings = {code: expected - counts.get(code, 0) for code in target_banks if counts.get(code, 0) < expected}
+    if warnings:
+        LOGGER.warning('Banks below requested target but above minimum: %s', warnings)
+    if shortfalls:
+        raise RuntimeError(f'Not enough reviews per bank: {shortfalls}. Re-run scraping or lower the target.')
 
 
 def parse_args() -> argparse.Namespace:
@@ -91,16 +129,22 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     target_banks = args.bank or list(APP_IDS.keys())
-    records = scrape_all(target_banks, lang=args.lang, country=args.country, count=args.count)
+    records = scrape_all(target_banks, lang=args.lang, country=args.country, count=args.count, retries=SCRAPING_CONFIG['max_retries'])
 
     if not records:
-        print('No reviews collected. Nothing to write.')
+        LOGGER.error('No reviews collected. Nothing to write.')
         return
 
+    enforce_bank_counts(
+        records,
+        target_banks,
+        minimum=QUALITY_THRESHOLDS['min_reviews_per_bank'],
+        expected=args.count,
+    )
     out_path = args.out
     os.makedirs(os.path.dirname(out_path) or '.', exist_ok=True)
     pd.DataFrame.from_records(records).to_csv(out_path, index=False)
-    print(f'Wrote {len(records)} reviews to {out_path}')
+    LOGGER.info('Wrote %s reviews to %s', len(records), out_path)
 
 
 if __name__ == '__main__':

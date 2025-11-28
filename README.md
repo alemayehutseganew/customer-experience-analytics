@@ -54,5 +54,10 @@ Branches
 - Use `task-3` for DB integration.
 - Use `task-4` for final visuals and report.
 
+Git workflow
+- Create a feature branch per rubric task (e.g., `task-2/<feature>`), push commits there, and open a pull request targeting `main`.
+- Describe the change, data fresh run, and validation steps inside the PR, then request a review (self-review at minimum) before merging.
+- Merge only via PRs so the history is auditable and aligns with the "Git & GitHub Best Practices" rubric expectations.
+
 References
 - See the challenge doc for recommended models and libraries.

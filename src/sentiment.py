@@ -1,6 +1,7 @@
 """Add sentiment labels/keywords to the cleaned dataset using config defaults."""
 
 import argparse
+import logging
 import os
 from typing import List, Sequence, Tuple
 
@@ -12,6 +13,9 @@ from config import DATA_PATHS
 
 HF_MODEL = 'distilbert-base-uncased-finetuned-sst-2-english'
 
+logging.basicConfig(level=os.getenv('LOGLEVEL', 'INFO'), format='[%(levelname)s] %(message)s')
+LOGGER = logging.getLogger(__name__)
+
 
 def compute_sentiment_hf(texts: Sequence[str]) -> Tuple[List[str], List[float]]:
     try:
@@ -22,7 +26,8 @@ def compute_sentiment_hf(texts: Sequence[str]) -> Tuple[List[str], List[float]]:
         labels = [o['label'] for o in out]
         scores = [float(o.get('score', 0.0)) for o in out]
         return labels, scores
-    except Exception:
+    except Exception as exc:  # pragma: no cover - optional dependency
+        LOGGER.warning('Falling back to VADER because transformer pipeline failed: %s', exc)
         return None, None
 
 
@@ -87,7 +92,7 @@ def annotate(in_path: str, out_path: str, *, use_hf: bool = True, top_k: int = 3
 
     os.makedirs(os.path.dirname(out_path) or '.', exist_ok=True)
     df.to_csv(out_path, index=False)
-    print(f'Wrote annotated file to {out_path} (rows: {len(df)})')
+    LOGGER.info('Wrote annotated file to %s (rows: %s)', out_path, len(df))
 
 
 def parse_args() -> argparse.Namespace:

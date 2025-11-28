@@ -31,6 +31,12 @@ SCRAPING_CONFIG = {
     'country': 'et'  # Ethiopia
 }
 
+# Data quality guardrails
+QUALITY_THRESHOLDS = {
+    'min_reviews_per_bank': int(os.getenv('MIN_REVIEWS_PER_BANK', 400)),
+    'max_missing_ratio': float(os.getenv('MAX_MISSING_RATIO', 0.05)),
+}
+
 # File Paths
 DATA_PATHS = {
     'raw': 'data/raw',

@@ -1,6 +1,7 @@
 """Create Postgres schema and insert cleaned/annotated reviews."""
 
 import argparse
+import logging
 import os
 from typing import Optional
 
@@ -11,6 +12,10 @@ from config import APP_IDS, BANK_NAMES, DATA_PATHS
 
 
 DEFAULT_DBURL = os.environ.get('PGURL') or 'postgresql://postgres:postgres@localhost:5432/bank_reviews'
+REQUIRED_INPUT_COLS = {'bank', 'review', 'rating', 'review_date', 'source'}
+
+logging.basicConfig(level=os.getenv('LOGLEVEL', 'INFO'), format='[%(levelname)s] %(message)s')
+LOGGER = logging.getLogger(__name__)
 
 
 def create_schema(engine):
@@ -49,6 +54,14 @@ def _bank_code_from_row(row: pd.Series) -> Optional[str]:
 
 
 def insert_reviews(engine, df):
+    missing_cols = REQUIRED_INPUT_COLS - set(df.columns)
+    if missing_cols:
+        raise ValueError(f'Input data is missing required columns: {missing_cols}')
+
+    null_ratios = df[list(REQUIRED_INPUT_COLS)].isna().mean()
+    if null_ratios.any():
+        raise ValueError(f'Nulls detected in required columns: {null_ratios.to_dict()}')
+
     meta = MetaData(bind=engine)
     meta.reflect()
     banks = meta.tables.get('banks')
@@ -80,7 +93,7 @@ def insert_reviews(engine, df):
                 'source': row.get('source'),
             })
         conn.execute(reviews.insert(), ins)
-    print(f'Inserted {len(ins)} reviews')
+    LOGGER.info('Inserted %s reviews into Postgres', len(ins))
 
 
 def main():
@@ -90,6 +103,7 @@ def main():
     args = parser.parse_args()
 
     df = pd.read_csv(args.in_path, parse_dates=['review_date'])
+    LOGGER.info('Loaded %s annotated rows from %s', len(df), args.in_path)
     engine = create_engine(args.dburl)
     create_schema(engine)
     insert_reviews(engine, df)
