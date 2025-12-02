@@ -6,7 +6,8 @@ import os
 from typing import List, Sequence, Tuple
 
 import pandas as pd
-from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
+from sklearn.decomposition import LatentDirichletAllocation
 
 from config import DATA_PATHS
 
@@ -67,6 +68,38 @@ def extract_keywords(texts: Sequence[str], top_k: int = 3) -> List[str]:
     return keywords
 
 
+def perform_topic_modeling(texts: Sequence[str], n_topics: int = 5) -> Tuple[List[str], pd.DataFrame]:
+    """
+    Perform LDA topic modeling on the texts.
+    Returns:
+        - List of dominant topic index for each text
+        - DataFrame of topics and their top words
+    """
+    if not texts:
+        return [], pd.DataFrame()
+
+    # Use CountVectorizer for LDA
+    tf_vectorizer = CountVectorizer(max_df=0.95, min_df=2, stop_words='english')
+    tf = tf_vectorizer.fit_transform(texts)
+    
+    lda = LatentDirichletAllocation(n_components=n_topics, max_iter=10, learning_method='online', random_state=0)
+    lda.fit(tf)
+    
+    # Get dominant topic for each document
+    topic_results = lda.transform(tf)
+    dominant_topics = topic_results.argmax(axis=1)
+    
+    # Extract top words for each topic
+    feature_names = tf_vectorizer.get_feature_names_out()
+    topics_data = []
+    for topic_idx, topic in enumerate(lda.components_):
+        top_features_ind = topic.argsort()[:-11:-1]
+        top_words = [feature_names[i] for i in top_features_ind]
+        topics_data.append({'Topic': topic_idx, 'Top Words': ", ".join(top_words)})
+        
+    return [int(t) for t in dominant_topics], pd.DataFrame(topics_data)
+
+
 def annotate(in_path: str, out_path: str, *, use_hf: bool = True, top_k: int = 3) -> None:
     if not os.path.exists(in_path):
         raise FileNotFoundError(f'Input file not found: {in_path}')
@@ -89,6 +122,16 @@ def annotate(in_path: str, out_path: str, *, use_hf: bool = True, top_k: int = 3
     df['sentiment_label'] = labels
     df['sentiment_score'] = scores
     df['keywords'] = extract_keywords(texts, top_k=top_k)
+    
+    # Add Topic Modeling
+    LOGGER.info("Performing Topic Modeling...")
+    dominant_topics, topics_df = perform_topic_modeling(texts, n_topics=5)
+    df['topic_id'] = dominant_topics
+    
+    # Save topics summary
+    topics_summary_path = os.path.join(os.path.dirname(out_path), 'topics_summary.csv')
+    topics_df.to_csv(topics_summary_path, index=False)
+    LOGGER.info(f"Wrote topics summary to {topics_summary_path}")
 
     os.makedirs(os.path.dirname(out_path) or '.', exist_ok=True)
     df.to_csv(out_path, index=False)

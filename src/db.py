@@ -8,10 +8,9 @@ from typing import Optional
 import pandas as pd
 from sqlalchemy import Column, Date, Float, ForeignKey, Integer, MetaData, String, Table, Text, create_engine
 
-from config import APP_IDS, BANK_NAMES, DATA_PATHS
+from config import APP_IDS, BANK_NAMES, DATA_PATHS, DB_URL
 
 
-DEFAULT_DBURL = os.environ.get('PGURL') or 'postgresql://postgres:postgres@localhost:5432/bank_reviews'
 REQUIRED_INPUT_COLS = {'bank', 'review', 'rating', 'review_date', 'source'}
 
 logging.basicConfig(level=os.getenv('LOGLEVEL', 'INFO'), format='[%(levelname)s] %(message)s')
@@ -62,8 +61,8 @@ def insert_reviews(engine, df):
     if null_ratios.any():
         raise ValueError(f'Nulls detected in required columns: {null_ratios.to_dict()}')
 
-    meta = MetaData(bind=engine)
-    meta.reflect()
+    meta = MetaData()
+    meta.reflect(bind=engine)
     banks = meta.tables.get('banks')
     reviews = meta.tables.get('reviews')
 
@@ -72,7 +71,7 @@ def insert_reviews(engine, df):
         for bank_name in df['bank'].dropna().unique():
             res = conn.execute(banks.select().where(banks.c.bank_name == bank_name)).fetchone()
             if res:
-                bank_map[bank_name] = res['bank_id']
+                bank_map[bank_name] = res._mapping['bank_id']
             else:
                 sample_row = df[df['bank'] == bank_name].iloc[0]
                 bank_code = _bank_code_from_row(sample_row)
@@ -99,7 +98,7 @@ def insert_reviews(engine, df):
 def main():
     parser = argparse.ArgumentParser(description='Load sentiment-enriched reviews into Postgres.')
     parser.add_argument('--in', dest='in_path', default=DATA_PATHS['sentiment_results'], help='Input annotated CSV path (defaults to config).')
-    parser.add_argument('--dburl', default=DEFAULT_DBURL, help='Postgres DB URL (or set PGURL env).')
+    parser.add_argument('--dburl', default=DB_URL, help='Postgres DB URL (or set PGURL env).')
     args = parser.parse_args()
 
     df = pd.read_csv(args.in_path, parse_dates=['review_date'])

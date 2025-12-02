@@ -47,6 +47,9 @@ DATA_PATHS = {
     'final_results': 'data/processed/reviews_final.csv'
 }
 
+# Database Configuration
+DB_URL = os.getenv('PGURL') or os.getenv('DATABASE_URL') or 'postgresql://postgres:postgres@localhost:5432/bank_reviews'
+
 
 
 
