@@ -126,6 +126,43 @@ def make_summary_table(df: pd.DataFrame) -> Table:
     return table
 
 
+def get_representative_reviews(df: pd.DataFrame) -> List[List[str]]:
+    """Extract representative positive and negative reviews for each bank."""
+    samples = []
+    for bank in df['bank'].unique():
+        bank_df = df[df['bank'] == bank]
+        
+        # Get most positive review
+        pos_review = bank_df.nlargest(1, 'sentiment_score')['review'].iloc[0]
+        # Get most negative review
+        neg_review = bank_df.nsmallest(1, 'sentiment_score')['review'].iloc[0]
+        
+        # Truncate if too long
+        pos_review = (pos_review[:150] + '...') if len(pos_review) > 150 else pos_review
+        neg_review = (neg_review[:150] + '...') if len(neg_review) > 150 else neg_review
+        
+        samples.append([bank, "Positive", pos_review])
+        samples.append([bank, "Negative", neg_review])
+        
+    return samples
+
+def make_reviews_table(samples: List[List[str]]) -> Table:
+    data = [['Bank', 'Sentiment', 'Review Excerpt']] + samples
+    table = Table(data, hAlign='LEFT', colWidths=[1.8 * inch, 1.0 * inch, 4.0 * inch])
+    table.setStyle(
+        TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#003f5c')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.lightgrey),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.whitesmoke, colors.lightgrey]),
+            ('WORDWRAP', (2, 1), (2, -1), True),
+        ])
+    )
+    return table
+
 def build_pdf(df: pd.DataFrame, figure_paths: Dict[str, Path], keyword_paths: List[Path]) -> None:
     doc = SimpleDocTemplate(
         str(PDF_PATH),
@@ -168,6 +205,13 @@ def build_pdf(df: pd.DataFrame, figure_paths: Dict[str, Path], keyword_paths: Li
 
     elements.append(make_summary_table(df))
     elements.append(Spacer(1, 18))
+
+    elements.append(Paragraph('Voice of the Customer: Representative Reviews', styles['Subheading']))
+    elements.append(Paragraph('The following excerpts highlight the key themes driving positive and negative sentiment:', body))
+    elements.append(Spacer(1, 8))
+    review_samples = get_representative_reviews(df)
+    elements.append(make_reviews_table(review_samples))
+    elements.append(Spacer(1, 12))
 
     elements.append(Paragraph('Visual Insights', styles['Subheading']))
     for caption, path in figure_paths.items():
