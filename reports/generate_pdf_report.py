@@ -1,4 +1,4 @@
-"""Generate the Week 2 final PDF report with embedded figures."""
+﻿"""Generate the Week 2 final PDF report with embedded figures."""
 from __future__ import annotations
 
 import os
@@ -89,7 +89,7 @@ def plot_keywords(df: pd.DataFrame) -> List[Path]:
         words, counts = zip(*common)
         plt.figure()
         sns.barplot(x=list(counts), y=list(words), palette='Blues_d')
-        plt.title(f'Top Keywords — {bank}')
+        plt.title(f'Top Keywords ΓÇö {bank}')
         plt.xlabel('Frequency')
         slug = bank.lower().replace(' ', '_')
         paths.append(_save_current_fig(f'keywords_{slug}.png', height=4.0))
@@ -179,8 +179,8 @@ def build_pdf(df: pd.DataFrame, figure_paths: Dict[str, Path], keyword_paths: Li
     body.leading = 14
     elements: List = []
 
-    elements.append(Paragraph('B8W2 Final Report — Customer Experience Analytics for Fintech Apps', styles['Heading']))
-    elements.append(Paragraph('Omega Consultancy | 26 Nov – 02 Dec 2025', body))
+    elements.append(Paragraph('B8W2 Final Report ΓÇö Customer Experience Analytics for Fintech Apps', styles['Heading']))
+    elements.append(Paragraph('Omega Consultancy | 26 Nov ΓÇô 02 Dec 2025', body))
     elements.append(Spacer(1, 12))
 
     overview = (
@@ -194,10 +194,10 @@ def build_pdf(df: pd.DataFrame, figure_paths: Dict[str, Path], keyword_paths: Li
 
     elements.append(Paragraph('Data Quality & Pipeline Highlights', styles['Subheading']))
     dq_text = (
-        '• Config-driven scraping enforces ≥400 reviews per bank (collected targets ≈800) with retry-aware logging.\n'
-        '• Preprocessing normalizes schema, enforces ISO dates, filters to English-only text, and guarantees <5% missingness.\n'
-        '• Sentiment scoring uses Hugging Face transformers with VADER fallback plus TF-IDF keyword extraction.\n'
-        '• Postgres loader validates required columns prior to inserting annotated data into `banks` and `reviews` tables.'
+        'ΓÇó Config-driven scraping enforces ΓëÑ400 reviews per bank (collected targets Γëê800) with retry-aware logging.\n'
+        'ΓÇó Preprocessing normalizes schema, enforces ISO dates, filters to English-only text, and guarantees <5% missingness.\n'
+        'ΓÇó Sentiment scoring uses Hugging Face transformers with VADER fallback plus TF-IDF keyword extraction.\n'
+        'ΓÇó Postgres loader validates required columns prior to inserting annotated data into `banks` and `reviews` tables.'
     )
     for line in dq_text.split('\n'):
         elements.append(Paragraph(line, body))
@@ -232,19 +232,19 @@ def build_pdf(df: pd.DataFrame, figure_paths: Dict[str, Path], keyword_paths: Li
     elements.append(Paragraph('Recommendations by Scenario', styles['Subheading']))
     rec_sections = [
         (
-            'Scenario 1 — Retaining Users',
+            'Scenario 1 ΓÇö Retaining Users',
             'CBE reviews highlight transfer latency and verification loops around branch visits; prioritize telemetry, '
             'in-app status messaging, and biometric re-auth. BOA should harden OTP/auth flows to curb login failures. '
             'Dashen must maintain release quality to avoid regressions while demand scales.',
         ),
         (
-            'Scenario 2 — Enhancing Features',
+            'Scenario 2 ΓÇö Enhancing Features',
             'Invest where users already show delight: fingerprint login and QR payments (CBE), smooth transfer UX and '
             'UI polish (BOA), and rewards/super-app utilities (Dashen). Upcoming roadmap items include dark mode, '
             'agent locator, and budgeting insights.',
         ),
         (
-            'Scenario 3 — Managing Complaints',
+            'Scenario 3 ΓÇö Managing Complaints',
             'Use the labeled negative themes (login error, slow transfer, OTP issues) to train chatbot intents and build '
             'triage dashboards. Track weekly decreases in these categories after fixes ship.',
         ),

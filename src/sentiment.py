@@ -113,25 +113,57 @@ def annotate(in_path: str, out_path: str, *, use_hf: bool = True, top_k: int = 3
         print('No reviews present in input file; skipping sentiment scoring.')
         return
 
-    labels = scores = None
-    if use_hf:
-        labels, scores = compute_sentiment_hf(texts)
-    if labels is None:
-        labels, scores = compute_sentiment_vader(texts)
+    # Check if sentiment already exists to avoid re-running expensive models
+    if 'sentiment_label' in df.columns and 'sentiment_score' in df.columns:
+        LOGGER.info("Sentiment columns found. Skipping sentiment scoring.")
+    else:
+        labels = scores = None
+        if use_hf:
+            labels, scores = compute_sentiment_hf(texts)
+        if labels is None:
+            labels, scores = compute_sentiment_vader(texts)
 
-    df['sentiment_label'] = labels
-    df['sentiment_score'] = scores
+        df['sentiment_label'] = labels
+        df['sentiment_score'] = scores
+
+    # Always re-extract keywords and topics as we might be tuning them
     df['keywords'] = extract_keywords(texts, top_k=top_k)
     
-    # Add Topic Modeling
-    LOGGER.info("Performing Topic Modeling...")
-    dominant_topics, topics_df = perform_topic_modeling(texts, n_topics=5)
-    df['topic_id'] = dominant_topics
+    # Add Topic Modeling (Per Bank)
+    LOGGER.info("Performing Topic Modeling per Bank...")
     
-    # Save topics summary
-    topics_summary_path = os.path.join(os.path.dirname(out_path), 'topics_summary.csv')
-    topics_df.to_csv(topics_summary_path, index=False)
-    LOGGER.info(f"Wrote topics summary to {topics_summary_path}")
+    all_topics_data = []
+    df['topic_id'] = -1 # Initialize
+    df['topic_name'] = "Other"
+
+    for bank in df['bank'].unique():
+        bank_mask = df['bank'] == bank
+        bank_texts = df.loc[bank_mask, 'review'].astype(str).fillna('').tolist()
+        
+        if len(bank_texts) < 10: # Skip if too few reviews
+             continue
+
+        # Run LDA for this bank
+        bank_topics, bank_topics_df = perform_topic_modeling(bank_texts, n_topics=5)
+        
+        # Assign topic IDs (offset by bank to keep unique if needed, or just reuse 0-4)
+        # Here we reuse 0-4 but store the topic words to make it interpretable
+        df.loc[bank_mask, 'topic_id'] = bank_topics
+        
+        # Map topic ID to top words for the dataframe
+        topic_map = {row['Topic']: row['Top Words'] for _, row in bank_topics_df.iterrows()}
+        df.loc[bank_mask, 'topic_name'] = df.loc[bank_mask, 'topic_id'].map(topic_map)
+
+        # Add bank name to summary
+        bank_topics_df['Bank'] = bank
+        all_topics_data.append(bank_topics_df)
+
+    # Save combined topics summary
+    if all_topics_data:
+        full_topics_df = pd.concat(all_topics_data, ignore_index=True)
+        topics_summary_path = os.path.join(os.path.dirname(out_path), 'topics_summary.csv')
+        full_topics_df.to_csv(topics_summary_path, index=False)
+        LOGGER.info(f"Wrote per-bank topics summary to {topics_summary_path}")
 
     os.makedirs(os.path.dirname(out_path) or '.', exist_ok=True)
     df.to_csv(out_path, index=False)
