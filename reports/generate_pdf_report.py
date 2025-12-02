@@ -146,6 +146,22 @@ def get_representative_reviews(df: pd.DataFrame) -> List[List[str]]:
         
     return samples
 
+
+def get_per_bank_topics(topics_path: Path | str) -> Dict[str, List[str]]:
+    """Load per-bank topic summaries."""
+    try:
+        topics_df = pd.read_csv(topics_path)
+        if 'Bank' in topics_df.columns:
+            result = {}
+            for bank in topics_df['Bank'].unique():
+                bank_topics = topics_df[topics_df['Bank'] == bank]
+                top_words_list = [row['Top Words'] for _, row in bank_topics.iterrows()]
+                result[bank] = top_words_list
+            return result
+        return {}
+    except (FileNotFoundError, KeyError):
+        return {}
+
 def make_reviews_table(samples: List[List[str]]) -> Table:
     data = [['Bank', 'Sentiment', 'Review Excerpt']] + samples
     table = Table(data, hAlign='LEFT', colWidths=[1.8 * inch, 1.0 * inch, 4.0 * inch])
@@ -197,6 +213,7 @@ def build_pdf(df: pd.DataFrame, figure_paths: Dict[str, Path], keyword_paths: Li
         'ΓÇó Config-driven scraping enforces ΓëÑ400 reviews per bank (collected targets Γëê800) with retry-aware logging.\n'
         'ΓÇó Preprocessing normalizes schema, enforces ISO dates, filters to English-only text, and guarantees <5% missingness.\n'
         'ΓÇó Sentiment scoring uses Hugging Face transformers with VADER fallback plus TF-IDF keyword extraction.\n'
+        'ΓÇó Per-bank LDA topic modeling identifies 5 interpretable themes per bank, enabling targeted improvement roadmaps.\n'
         'ΓÇó Postgres loader validates required columns prior to inserting annotated data into `banks` and `reviews` tables.'
     )
     for line in dq_text.split('\n'):
@@ -212,6 +229,34 @@ def build_pdf(df: pd.DataFrame, figure_paths: Dict[str, Path], keyword_paths: Li
     review_samples = get_representative_reviews(df)
     elements.append(make_reviews_table(review_samples))
     elements.append(Spacer(1, 12))
+
+    # Per-Bank Thematic Insights
+    elements.append(PageBreak())
+    elements.append(Paragraph('Per-Bank Thematic Clustering & Key Drivers', styles['Subheading']))
+    topics_file = BASE_DIR / DATA_PATHS['sentiment_results'].replace('reviews_with_sentiment.csv', 'topics_summary.csv')
+    bank_topics = get_per_bank_topics(topics_file)
+    
+    if bank_topics:
+        elements.append(Paragraph(
+            'Using Latent Dirichlet Allocation (LDA), we extracted 3ΓÇô5 interpretable themes per bank. '
+            'These themes represent coherent clusters of customer concerns and satisfaction drivers:',
+            body
+        ))
+        elements.append(Spacer(1, 10))
+        
+        for bank in sorted(bank_topics.keys()):
+            themes = bank_topics[bank]
+            elements.append(Paragraph(f'<b>{bank}ΓÇö Dominant Themes:</b>', body))
+            
+            theme_text = ''
+            for i, theme in enumerate(themes[:5], 1):
+                # Extract top 3 words from theme
+                top_words = ', '.join(theme.split(',')[:3])
+                theme_text += f'ΓÇó Topic {i}: {top_words}\n'
+            
+            for line in theme_text.strip().split('\n'):
+                elements.append(Paragraph(line, body))
+            elements.append(Spacer(1, 8))
 
     elements.append(Paragraph('Visual Insights', styles['Subheading']))
     for caption, path in figure_paths.items():
