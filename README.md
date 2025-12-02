@@ -64,31 +64,27 @@ python reports/generate_pdf_report.py
 **Requirement**: Produce 3–5 interpretable themes per bank
 
 **Solution**: Per-bank LDA topic modeling via scikit-learn
+ 
+**What changed**:
+- Pipeline now adds `topic_id` + `topic_label` columns to every review row for downstream joins.
+- `data/processed/topics_summary.csv` stores `bank`, `topic_id`, `topic_keywords`, `share_of_reviews`, and `avg_sentiment` so we can track coverage + polarity per theme.
+- Notebook & PDF consume the summary to show top three drivers per bank.
 
-**Per-Bank Themes Generated**:
+**Latest run (Nov 2025)**
 
-#### Commercial Bank of Ethiopia
-- **Topic 0**: "work, doesn, bank, problem, fix" → Technical Issues & Bugs
-- **Topic 1**: "app, banking, nice, mobile, cbe, excellent" → Premium Quality & Satisfaction
-- **Topic 2**: "good, app, transaction, make, fast, service" → Speed & Transaction Efficiency
-- **Topic 3**: "like, life, useful, easy, work" → Usability & Practicality
-- **Topic 4**: "app, best, use, bank, money, cbe" → Overall Feature Set
+| Bank | Topic ID | Keywords (Top 5) | Share of Reviews | Avg Sentiment |
+|------|----------|------------------|------------------|---------------|
+| Abissinia Bank | 4 | app, good, work, time, doesn | 30.9% | 0.99 |
+| Abissinia Bank | 2 | app, mobile, banking, bank, worst | 28.7% | 0.98 |
+| Abissinia Bank | 0 | app, working, money, don, try | 28.2% | 0.96 |
+| Commercial Bank of Ethiopia | 4 | app, best, use, bank, money | 33.8% | 0.99 |
+| Commercial Bank of Ethiopia | 0 | work, doesn, bank, problem, fix | 23.9% | 0.94 |
+| Commercial Bank of Ethiopia | 2 | good, app, transaction, make, fast | 18.9% | 0.98 |
+| Dashen Bank | 2 | app, dashen, bank, banking, super | 52.5% | 0.99 |
+| Dashen Bank | 1 | good, app, amazing, slow, like | 16.3% | 0.99 |
+| Dashen Bank | 0 | work, app, easily, able, pay | 13.6% | 0.97 |
 
-#### Abissinia Bank
-- **Topic 0**: "app, working, money, don, try" → Functionality & App Stability
-- **Topic 1**: "service, phone, crash, apps, open, internet" → Infrastructure & Connectivity
-- **Topic 2**: "app, mobile, banking, bank, worst, boa" → Core App Quality
-- **Topic 3**: "update, developer, option, keeps, disable" → Feature Management & Updates
-- **Topic 4**: "app, good, work, time, doesn" → Performance & Reliability
-
-#### Dashen Bank
-- **Topic 0**: "work, app, easily, able, pay, product" → Ease of Use & Accessibility
-- **Topic 1**: "good, app, amazing, slow, like" → User Experience Perception
-- **Topic 2**: "app, dashen, bank, banking, super, best" → Premium Experience & Market Position
-- **Topic 3**: "working, app, using, bank, fix, pin, issue" → Authentication & Security
-- **Topic 4**: "app, bank, wow, amole, worst, account" → Integration & Feature Breadth
-
-**Output**: `data/processed/topics_summary.csv` with Bank column for per-bank tracking
+_Source: `data/processed/reviews_with_sentiment.csv` + `data/processed/topics_summary.csv`_
 
 ---
 
@@ -107,7 +103,7 @@ python reports/generate_pdf_report.py
 **Evidence**: Keywords extracted from 1,761 reviews; themes validated via LDA coherence scores
 
 **Location**: 
-- Notebook analysis: `notebooks/analysis.ipynb` (cell 9)
+- Notebook: `notebooks/analysis.ipynb` → final cell prints automated drivers/pain points leveraging `topics_summary.csv`
 - PDF report: `reports/B8W2_final_report.pdf` (section: "Per-Bank Thematic Clustering & Key Drivers")
 
 ---
@@ -122,7 +118,7 @@ python reports/generate_pdf_report.py
   1. `7bfb400` - `feat: implement per-bank topic modeling and thematic clustering`
   2. `a26c007` - `feat: add per-bank thematic insights to PDF report`
   3. `157d22e` - `docs: add comprehensive rubric improvements summary`
-- **Documentation**: `RUBRIC_IMPROVEMENTS.md` (comprehensive guide)
+- **Documentation**: README (this file) captures rubric deltas, evidence, and runbooks
 - **GitHub**: https://github.com/alemayehutseganew/customer-experience-analytics/tree/feature/rubric-final-polish
 
 **Status**: PR-ready for merge into main
@@ -144,7 +140,8 @@ python reports/generate_pdf_report.py
 │   └── analysis.ipynb         # Per-bank insights, drivers, recommendations ✨ ENHANCED
 ├── reports/
 │   ├── generate_pdf_report.py # PDF report with per-bank themes ✨ ENHANCED
-│   └── B8W2_final_report.pdf  # Final report output
+│   ├── B8W2_final_report.pdf  # Final report output
+│   └── figures/               # Generated PNGs for the PDF (gitignored)
 ├── data/
 │   ├── raw/
 │   │   └── reviews_raw.csv
@@ -154,7 +151,6 @@ python reports/generate_pdf_report.py
 │       └── topics_summary.csv ✨ NEW (per-bank LDA topics)
 ├── tests/
 │   └── test_core.py           # Unit tests
-├── RUBRIC_IMPROVEMENTS.md     # ✨ NEW (Detailed improvements doc)
 ├── README.md                  # This file
 └── requirements.txt
 ```
@@ -254,7 +250,7 @@ LANGUAGE=en
 - ✅ PDF report: `reports/B8W2_final_report.pdf`
 - ✅ Jupyter notebook: `notebooks/analysis.ipynb`
 - ✅ Git feature branch: `feature/rubric-final-polish`
-- ✅ Documentation: `RUBRIC_IMPROVEMENTS.md`
+- ✅ Living rubric summary: `README.md`
 
 ---
 
