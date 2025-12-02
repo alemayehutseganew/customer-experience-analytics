@@ -3,7 +3,7 @@
 import argparse
 import logging
 import os
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import pandas as pd
 from langdetect import DetectorFactory, LangDetectException, detect
@@ -20,6 +20,7 @@ DetectorFactory.seed = 0  # make detections deterministic for tests
 
 REQUIRED_COLS: List[str] = ['review', 'rating', 'review_date', 'bank', 'source']
 OPTIONAL_COLS: List[str] = ['bank_code', 'package']
+DATE_CANDIDATES: List[str] = ['review_date', 'date', 'at', 'created_at', 'created', 'timestamp']
 
 
 def is_english(text: str) -> bool:
@@ -33,39 +34,105 @@ def is_english(text: str) -> bool:
     sample = ''.join(ch for ch in text if ch.isalpha())
     if len(sample) < 3:  # skip extremely short/non letter strings
         return False
+    ascii_letters = sum(1 for ch in sample if ord(ch) < 128)
+    if ascii_letters / len(sample) < 0.65:
+        return False
     try:
         return detect(text) == 'en'
     except LangDetectException:
         return False
 
 
-def _log_quality_stats(df: pd.DataFrame, *, label: str) -> None:
-    null_ratios: Dict[str, float] = df[REQUIRED_COLS].isna().mean().to_dict()
+def _standardize_bank_label(value: object) -> str:
+    normalized = str(value or '').strip()
+    if not normalized:
+        return normalized
+    lower = normalized.lower()
+    for code, full_name in BANK_NAMES.items():
+        if lower in {code.lower(), full_name.lower()}:
+            return full_name
+    return normalized
+
+
+def _log_quality_stats(df: pd.DataFrame, *, label: str, columns: Optional[List[str]] = None) -> None:
+    columns = columns or REQUIRED_COLS
+    available = [col for col in columns if col in df.columns]
+    if not available:
+        LOGGER.warning('%s | no overlapping columns to profile (requested=%s).', label, columns)
+        return
+
+    null_ratios: Dict[str, float] = df[available].isna().mean().to_dict()
     LOGGER.info('%s | missing ratios: %s', label, {k: round(v, 4) for k, v in null_ratios.items()})
-    LOGGER.info('%s | bank counts: %s', label, df['bank'].value_counts().to_dict())
+    if 'bank' in df.columns:
+        LOGGER.info('%s | bank counts: %s', label, df['bank'].value_counts().to_dict())
 
 
-def _enforce_thresholds(df: pd.DataFrame) -> None:
-    ratios = df[REQUIRED_COLS].isna().mean()
-    max_missing = ratios.max()
-    if max_missing > QUALITY_THRESHOLDS['max_missing_ratio']:
+def _normalize_review_dates(df: pd.DataFrame) -> pd.Series:
+    for candidate in DATE_CANDIDATES:
+        if candidate in df.columns:
+            normalized = pd.to_datetime(df[candidate], errors='coerce', utc=True)
+            if normalized.notna().any():
+                normalized = normalized.dt.tz_convert('UTC').dt.tz_localize(None)
+                return normalized.dt.normalize()
+    return pd.Series(pd.NaT, index=df.index, dtype='datetime64[ns]')
+
+
+def _validate_missing_ratios(df: pd.DataFrame, columns: List[str], *, label: str) -> None:
+    available = [col for col in columns if col in df.columns]
+    if not available:
+        LOGGER.warning('%s | skipping missing-rate validation because columns are absent: %s', label, columns)
+        return
+
+    ratios = df[available].isna().mean()
+    offenders = {col: float(ratio) for col, ratio in ratios.items() if ratio > QUALITY_THRESHOLDS['max_missing_ratio']}
+    if offenders:
         raise ValueError(
-            f'Max missing ratio {max_missing:.3f} exceeds limit {QUALITY_THRESHOLDS["max_missing_ratio"]:.3f}. '
-            'Inspect cleaning logic.'
+            f'{label} exceeds missing threshold ({QUALITY_THRESHOLDS["max_missing_ratio"]:.2%}): {offenders}'
         )
+    LOGGER.info('%s | missing ratios within threshold: %s', label, {c: round(r, 4) for c, r in ratios.items()})
 
-    expected_banks = {name for name in BANK_NAMES.values()}
+
+def _validate_volume(df: pd.DataFrame, *, label: str) -> None:
+    if 'bank' not in df.columns:
+        LOGGER.warning('%s | bank column missing; skipping volume validation.', label)
+        return
+
     counts = df['bank'].value_counts()
+    missing_banks = set(BANK_NAMES.values()) - set(counts.index)
+    if missing_banks:
+        raise ValueError(f'{label} is missing required banks: {missing_banks}')
+
     shortfalls = {
         bank: QUALITY_THRESHOLDS['min_reviews_per_bank'] - counts.get(bank, 0)
-        for bank in expected_banks
+        for bank in BANK_NAMES.values()
         if counts.get(bank, 0) < QUALITY_THRESHOLDS['min_reviews_per_bank']
     }
     if shortfalls:
-        raise ValueError(f'Not enough cleaned reviews per bank: {shortfalls}')
+        raise ValueError(f'{label} below min reviews per bank: {shortfalls}')
+
+    total_reviews = int(counts.sum())
+    if total_reviews < QUALITY_THRESHOLDS['min_total_reviews']:
+        raise ValueError(
+            f'{label} must contain at least {QUALITY_THRESHOLDS["min_total_reviews"]} rows; found {total_reviews}.'
+        )
+
+    LOGGER.info('%s | volume OK (total=%s, per-bank=%s)', label, total_reviews, counts.to_dict())
 
 
-def preprocess(in_path: str, out_path: str) -> None:
+def _enforce_drop_ratio(raw_rows: int, cleaned_rows: int) -> None:
+    if raw_rows == 0:
+        return
+
+    drop_ratio = 1 - (cleaned_rows / raw_rows)
+    if drop_ratio > QUALITY_THRESHOLDS['max_drop_ratio']:
+        raise ValueError(
+            f'Cleaning removed {drop_ratio:.2%} of rows, exceeding limit '
+            f'{QUALITY_THRESHOLDS["max_drop_ratio"]:.2%}. Review preprocessing filters.'
+        )
+    LOGGER.info('Row retention: %.2f%% (dropped %.2f%%)', 100 * (1 - drop_ratio), 100 * drop_ratio)
+
+
+def preprocess(in_path: str, out_path: str, final_out_path: Optional[str] = None) -> None:
     if not os.path.exists(in_path):
         raise FileNotFoundError(f'Input file not found: {in_path}')
 
@@ -86,13 +153,6 @@ def preprocess(in_path: str, out_path: str) -> None:
     df = df[df['review'].apply(is_english)]
     df = df.drop_duplicates(subset=['review'])
 
-    if 'review_date' in df.columns:
-        df['review_date'] = pd.to_datetime(df['review_date'], errors='coerce')
-    else:
-        df['review_date'] = pd.to_datetime(df.get('date'), errors='coerce')
-
-    df['rating'] = pd.to_numeric(df.get('rating'), errors='coerce')
-
     if 'bank' not in df.columns:
         for candidate in ['bank_name', 'bank_code']:
             if candidate in df.columns:
@@ -100,6 +160,13 @@ def preprocess(in_path: str, out_path: str) -> None:
                 break
     if 'bank' not in df.columns:
         df['bank'] = 'Unknown'
+    df['bank'] = df['bank'].apply(_standardize_bank_label)
+
+    df['review_date'] = _normalize_review_dates(df)
+    df['rating'] = pd.to_numeric(df.get('rating'), errors='coerce')
+
+    _log_quality_stats(df, label='Pre-drop snapshot', columns=['review', 'rating', 'review_date'])
+    _validate_volume(df, label='Raw collection volume')
 
     if 'source' not in df.columns:
         df['source'] = 'google_play'
@@ -118,24 +185,35 @@ def preprocess(in_path: str, out_path: str) -> None:
     out_df = df[out_columns].copy()
     cleaned_rows = len(out_df)
     LOGGER.info('Cleaned dataset rows: %s (dropped %s)', cleaned_rows, raw_rows - cleaned_rows)
+    _enforce_drop_ratio(raw_rows, cleaned_rows)
+    _validate_missing_ratios(out_df, REQUIRED_COLS, label='Post-clean missing-rate validation')
+    _validate_volume(out_df, label='Post-clean volume check')
     _log_quality_stats(out_df, label='Post-clean summary')
-    _enforce_thresholds(out_df)
 
     os.makedirs(os.path.dirname(out_path) or '.', exist_ok=True)
     out_df.to_csv(out_path, index=False)
     LOGGER.info('Wrote cleaned data to %s (rows: %s)', out_path, cleaned_rows)
+
+    if final_out_path:
+        final_out_path = final_out_path.strip()
+        if final_out_path and final_out_path != out_path:
+            os.makedirs(os.path.dirname(final_out_path) or '.', exist_ok=True)
+            out_df.to_csv(final_out_path, index=False)
+            LOGGER.info('Synced single consolidated CSV to %s', final_out_path)
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description='Clean raw reviews dataset.')
     parser.add_argument('--in', dest='in_path', default=DATA_PATHS['raw_reviews'], help='Input CSV path (defaults to config.DATA_PATHS["raw_reviews"])')
     parser.add_argument('--out', dest='out_path', default=DATA_PATHS['processed_reviews'], help='Output CSV path (defaults to config.DATA_PATHS["processed_reviews"])')
+    parser.add_argument('--final', dest='final_out_path', default=DATA_PATHS.get('final_results'), help='Optional consolidated CSV target (defaults to config.DATA_PATHS["final_results"]. Provide blank to skip).')
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    preprocess(args.in_path, args.out_path)
+    final_out_path = args.final_out_path if args.final_out_path else None
+    preprocess(args.in_path, args.out_path, final_out_path=final_out_path)
 
 
 if __name__ == '__main__':

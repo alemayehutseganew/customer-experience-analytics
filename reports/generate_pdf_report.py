@@ -1,4 +1,4 @@
-"""Generate the Week 2 final PDF report with embedded figures."""
+﻿"""Generate the Week 2 final PDF report with embedded figures."""
 from __future__ import annotations
 
 import os
@@ -89,7 +89,7 @@ def plot_keywords(df: pd.DataFrame) -> List[Path]:
         words, counts = zip(*common)
         plt.figure()
         sns.barplot(x=list(counts), y=list(words), palette='Blues_d')
-        plt.title(f'Top Keywords — {bank}')
+        plt.title(f'Top Keywords ΓÇö {bank}')
         plt.xlabel('Frequency')
         slug = bank.lower().replace(' ', '_')
         paths.append(_save_current_fig(f'keywords_{slug}.png', height=4.0))
@@ -146,6 +146,22 @@ def get_representative_reviews(df: pd.DataFrame) -> List[List[str]]:
         
     return samples
 
+
+def get_per_bank_topics(topics_path: Path | str) -> Dict[str, List[str]]:
+    """Load per-bank topic summaries."""
+    try:
+        topics_df = pd.read_csv(topics_path)
+        if 'Bank' in topics_df.columns:
+            result = {}
+            for bank in topics_df['Bank'].unique():
+                bank_topics = topics_df[topics_df['Bank'] == bank]
+                top_words_list = [row['Top Words'] for _, row in bank_topics.iterrows()]
+                result[bank] = top_words_list
+            return result
+        return {}
+    except (FileNotFoundError, KeyError):
+        return {}
+
 def make_reviews_table(samples: List[List[str]]) -> Table:
     data = [['Bank', 'Sentiment', 'Review Excerpt']] + samples
     table = Table(data, hAlign='LEFT', colWidths=[1.8 * inch, 1.0 * inch, 4.0 * inch])
@@ -179,8 +195,8 @@ def build_pdf(df: pd.DataFrame, figure_paths: Dict[str, Path], keyword_paths: Li
     body.leading = 14
     elements: List = []
 
-    elements.append(Paragraph('B8W2 Final Report — Customer Experience Analytics for Fintech Apps', styles['Heading']))
-    elements.append(Paragraph('Omega Consultancy | 26 Nov – 02 Dec 2025', body))
+    elements.append(Paragraph('B8W2 Final Report ΓÇö Customer Experience Analytics for Fintech Apps', styles['Heading']))
+    elements.append(Paragraph('Omega Consultancy | 26 Nov ΓÇô 02 Dec 2025', body))
     elements.append(Spacer(1, 12))
 
     overview = (
@@ -194,10 +210,11 @@ def build_pdf(df: pd.DataFrame, figure_paths: Dict[str, Path], keyword_paths: Li
 
     elements.append(Paragraph('Data Quality & Pipeline Highlights', styles['Subheading']))
     dq_text = (
-        '• Config-driven scraping enforces ≥400 reviews per bank (collected targets ≈800) with retry-aware logging.\n'
-        '• Preprocessing normalizes schema, enforces ISO dates, filters to English-only text, and guarantees <5% missingness.\n'
-        '• Sentiment scoring uses Hugging Face transformers with VADER fallback plus TF-IDF keyword extraction.\n'
-        '• Postgres loader validates required columns prior to inserting annotated data into `banks` and `reviews` tables.'
+        'ΓÇó Config-driven scraping enforces ΓëÑ400 reviews per bank (collected targets Γëê800) with retry-aware logging.\n'
+        'ΓÇó Preprocessing normalizes schema, enforces ISO dates, filters to English-only text, and guarantees <5% missingness.\n'
+        'ΓÇó Sentiment scoring uses Hugging Face transformers with VADER fallback plus TF-IDF keyword extraction.\n'
+        'ΓÇó Per-bank LDA topic modeling identifies 5 interpretable themes per bank, enabling targeted improvement roadmaps.\n'
+        'ΓÇó Postgres loader validates required columns prior to inserting annotated data into `banks` and `reviews` tables.'
     )
     for line in dq_text.split('\n'):
         elements.append(Paragraph(line, body))
@@ -212,6 +229,34 @@ def build_pdf(df: pd.DataFrame, figure_paths: Dict[str, Path], keyword_paths: Li
     review_samples = get_representative_reviews(df)
     elements.append(make_reviews_table(review_samples))
     elements.append(Spacer(1, 12))
+
+    # Per-Bank Thematic Insights
+    elements.append(PageBreak())
+    elements.append(Paragraph('Per-Bank Thematic Clustering & Key Drivers', styles['Subheading']))
+    topics_file = BASE_DIR / DATA_PATHS['sentiment_results'].replace('reviews_with_sentiment.csv', 'topics_summary.csv')
+    bank_topics = get_per_bank_topics(topics_file)
+    
+    if bank_topics:
+        elements.append(Paragraph(
+            'Using Latent Dirichlet Allocation (LDA), we extracted 3ΓÇô5 interpretable themes per bank. '
+            'These themes represent coherent clusters of customer concerns and satisfaction drivers:',
+            body
+        ))
+        elements.append(Spacer(1, 10))
+        
+        for bank in sorted(bank_topics.keys()):
+            themes = bank_topics[bank]
+            elements.append(Paragraph(f'<b>{bank}ΓÇö Dominant Themes:</b>', body))
+            
+            theme_text = ''
+            for i, theme in enumerate(themes[:5], 1):
+                # Extract top 3 words from theme
+                top_words = ', '.join(theme.split(',')[:3])
+                theme_text += f'ΓÇó Topic {i}: {top_words}\n'
+            
+            for line in theme_text.strip().split('\n'):
+                elements.append(Paragraph(line, body))
+            elements.append(Spacer(1, 8))
 
     elements.append(Paragraph('Visual Insights', styles['Subheading']))
     for caption, path in figure_paths.items():
@@ -232,19 +277,19 @@ def build_pdf(df: pd.DataFrame, figure_paths: Dict[str, Path], keyword_paths: Li
     elements.append(Paragraph('Recommendations by Scenario', styles['Subheading']))
     rec_sections = [
         (
-            'Scenario 1 — Retaining Users',
+            'Scenario 1 ΓÇö Retaining Users',
             'CBE reviews highlight transfer latency and verification loops around branch visits; prioritize telemetry, '
             'in-app status messaging, and biometric re-auth. BOA should harden OTP/auth flows to curb login failures. '
             'Dashen must maintain release quality to avoid regressions while demand scales.',
         ),
         (
-            'Scenario 2 — Enhancing Features',
+            'Scenario 2 ΓÇö Enhancing Features',
             'Invest where users already show delight: fingerprint login and QR payments (CBE), smooth transfer UX and '
             'UI polish (BOA), and rewards/super-app utilities (Dashen). Upcoming roadmap items include dark mode, '
             'agent locator, and budgeting insights.',
         ),
         (
-            'Scenario 3 — Managing Complaints',
+            'Scenario 3 ΓÇö Managing Complaints',
             'Use the labeled negative themes (login error, slow transfer, OTP issues) to train chatbot intents and build '
             'triage dashboards. Track weekly decreases in these categories after fixes ship.',
         ),

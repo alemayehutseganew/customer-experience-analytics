@@ -1,4 +1,4 @@
-"""
+﻿"""
 Verification script to check data integrity in PostgreSQL.
 Runs aggregate SQL checks and logs results.
 """
