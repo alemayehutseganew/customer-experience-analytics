@@ -37,7 +37,7 @@ pip install -r requirements.txt
 ```powershell
 # Scrape & preprocess
 python src/scrape_reviews.py
-python src/preprocess.py
+python src/preprocess.py --final data/processed/reviews_final.csv
 
 # Sentiment analysis + per-bank LDA topics
 python src/sentiment.py
@@ -58,6 +58,15 @@ python reports/generate_pdf_report.py
 ---
 
 ## 🎯 Key Improvements (Iteration 3)
+
+### ✨ Task 1: Data Collection & Preprocessing
+
+**Requirement**: Guarantee minimum volume per bank, <5% missingness, ISO-formatted dates, and a single consolidated CSV deliverable.
+
+**What changed**:
+- `scrape_reviews.py` now enforces both per-bank minimums and a dynamic total volume gate so failed runs surface immediately.
+- `preprocess.py` adds deterministic ISO date normalization, missing-rate validation, and drop-ratio checks (fails fast if more than 40% of rows are discarded).
+- Cleaned data is written to `data/processed/reviews_processed.csv` *and* synced to `data/processed/reviews_final.csv` (configurable via `--final`) so downstream tasks operate on one canonical file.
 
 ### ✨ Task 2: Sentiment & Thematic Analysis
 
@@ -147,6 +156,7 @@ _Source: `data/processed/reviews_with_sentiment.csv` + `data/processed/topics_su
 │   │   └── reviews_raw.csv
 │   └── processed/
 │       ├── reviews_processed.csv
+│       ├── reviews_final.csv
 │       ├── reviews_with_sentiment.csv
 │       └── topics_summary.csv ✨ NEW (per-bank LDA topics)
 ├── tests/
@@ -164,6 +174,7 @@ _Source: `data/processed/reviews_with_sentiment.csv` + `data/processed/topics_su
 - **After filtering & dedup**: 1,761 (74.5% retention rate)
 - **Language**: English-only
 - **Missing values**: <5% across critical columns
+- **Guardrails**: Enforces ≥400 reviews per bank, ≥1,200 total rows, <40% drop-off, and fails fast if missingness exceeds 5%
 - **Database**: 5,283 total reviews across 3 banks
 
 ### Topic Quality
@@ -193,6 +204,11 @@ PGURL=postgresql://user:pass@localhost:5432/bank_reviews
 LOGLEVEL=INFO
 LANGUAGE=en
 ```
+
+Quality guardrail knobs:
+- `MIN_TOTAL_REVIEWS` / `MIN_REVIEWS_PER_BANK` control volume gates.
+- `MAX_DROP_RATIO` caps how much data preprocessing may discard (default 0.4).
+- `MAX_MISSING_RATIO` flags unexpected null spikes across required columns.
 
 ### Banks Configured
 - **Commercial Bank of Ethiopia** (CBE): `com.combanketh.mobilebanking`
@@ -245,6 +261,7 @@ LANGUAGE=en
 ## 📚 Deliverables
 
 - ✅ Annotated dataset: `data/processed/reviews_with_sentiment.csv`
+- ✅ Single consolidated CSV: `data/processed/reviews_final.csv`
 - ✅ Per-bank topics: `data/processed/topics_summary.csv`
 - ✅ PostgreSQL schema with 5,283 reviews
 - ✅ PDF report: `reports/B8W2_final_report.pdf`

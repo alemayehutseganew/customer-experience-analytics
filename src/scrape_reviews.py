@@ -10,7 +10,7 @@ import os
 import time
 from collections import Counter
 from datetime import datetime
-from typing import Iterable, List, Sequence, Tuple
+from typing import Iterable, List, Optional, Sequence, Tuple
 
 import pandas as pd
 from google_play_scraper import Sort, reviews
@@ -105,7 +105,7 @@ def scrape_all(banks: Iterable[str], *, lang: str, country: str, count: int, ret
     return records
 
 
-def enforce_bank_counts(records: Sequence[dict], target_banks: Sequence[str], *, minimum: int, expected: int) -> None:
+def enforce_bank_counts(records: Sequence[dict], target_banks: Sequence[str], *, minimum: int, expected: int, minimum_total: Optional[int] = None) -> None:
     counts = Counter(r['bank_code'] for r in records)
     shortfalls = {code: minimum - counts.get(code, 0) for code in target_banks if counts.get(code, 0) < minimum}
     LOGGER.info('Per-bank counts: %s', {code: counts.get(code, 0) for code in target_banks})
@@ -114,6 +114,15 @@ def enforce_bank_counts(records: Sequence[dict], target_banks: Sequence[str], *,
         LOGGER.warning('Banks below requested target but above minimum: %s', warnings)
     if shortfalls:
         raise RuntimeError(f'Not enough reviews per bank: {shortfalls}. Re-run scraping or lower the target.')
+
+    if minimum_total is not None:
+        total_reviews = len(records)
+        if total_reviews < minimum_total:
+            raise RuntimeError(
+                f'Collected {total_reviews} reviews but require at least {minimum_total} for this run. '
+                'Increase --count or update QUALITY_THRESHOLDS.'
+            )
+        LOGGER.info('Total reviews collected: %s (minimum required %s).', total_reviews, minimum_total)
 
 
 def parse_args() -> argparse.Namespace:
@@ -135,11 +144,16 @@ def main() -> None:
         LOGGER.error('No reviews collected. Nothing to write.')
         return
 
+    minimum_total = QUALITY_THRESHOLDS['min_reviews_per_bank'] * len(target_banks)
+    if len(target_banks) == len(APP_IDS):
+        minimum_total = max(minimum_total, QUALITY_THRESHOLDS['min_total_reviews'])
+
     enforce_bank_counts(
         records,
         target_banks,
         minimum=QUALITY_THRESHOLDS['min_reviews_per_bank'],
         expected=args.count,
+        minimum_total=minimum_total,
     )
     out_path = args.out
     os.makedirs(os.path.dirname(out_path) or '.', exist_ok=True)
